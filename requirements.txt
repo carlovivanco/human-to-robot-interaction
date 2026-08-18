@@ -1,0 +1,8 @@
+numpy
+opencv-python
+mediapipe
+ultralytics
+transformers
+tf-keras
+SpeechRecognition
+PyAudio
