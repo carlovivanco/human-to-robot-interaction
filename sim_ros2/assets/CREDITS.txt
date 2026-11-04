@@ -1,0 +1,1 @@
+hand.png: crop of Open Images V7 photo 237219dbcdf91210 (validation split), CC BY 2.0, annotations CC BY 4.0. https://storage.googleapis.com/openimages/web/index.html

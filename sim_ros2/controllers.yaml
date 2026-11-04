@@ -1,0 +1,11 @@
+# Joint position control: Gazebo's Cartesian impedance controller oscillates, see ik_node.py.
+arm_position_controller:
+  ros__parameters:
+    type: position_controllers/JointGroupPositionController
+    joints: [fr3_joint1, fr3_joint2, fr3_joint3, fr3_joint4, fr3_joint5, fr3_joint6, fr3_joint7]
+
+gripper_position_controller:
+  ros__parameters:
+    type: position_controllers/JointGroupPositionController
+    joints:
+      - fr3_finger_joint1

@@ -1,11 +1,11 @@
+from ultralytics import YOLO  # torch (and triton, via torchvision.ops) must load before mediapipe: CUDA fails / LLVM clashes otherwise
+import torchvision.ops  # noqa: F401
 import cv2
 import mediapipe as mp
 from mediapipe.tasks import python
-from ultralytics import YOLO
 import time
 import numpy as np
 from math import atan2, cos, sin, sqrt, pi
-from vision_sim.vision_server.img_sub import ImageSubscriber
 import threading
 
 
@@ -22,8 +22,10 @@ class VisionClass(threading.Thread):
         processed_frame (ndarray): The latest processed frame.
     """
 
-    def __init__(self, yolo_model_path, gesture_model_path, show_camera):
+    def __init__(self, yolo_model_path, gesture_model_path, show_camera, img=None):
+        """img: any object with .frame (BGR ndarray) and get_depth(x, y); defaults to the ROS 2 ImageSubscriber."""
         super().__init__()
+        self._stop_event = threading.Event()
         # Load the YOLO model using the provided model path
         self.yolo_model = YOLO(yolo_model_path)
         # Path for gesture recognition model
@@ -32,7 +34,10 @@ class VisionClass(threading.Thread):
         self.gesture_recognizer = self.initialize_gesture_recognizer()
         # Flag to show or hide the camera output
         self.show_camera = show_camera
-        self.img = ImageSubscriber()
+        if img is None:
+            from vision_sim.vision_server.img_sub import ImageSubscriber  # needs rclpy
+            img = ImageSubscriber()
+        self.img = img
         self.processed_frame = self.img
 
     def initialize_gesture_recognizer(self):
@@ -218,19 +223,20 @@ class VisionClass(threading.Thread):
         index_tip, index_direction = None, None
         center_hand = None
 
+        clean = frame.copy()  # YOLO must not see the hand skeleton drawn below: it covers a tool lying on the palm
         if recognition_result.hand_landmarks:
             for hand_landmarks in recognition_result.hand_landmarks:
                 index_tip, index_direction = self.get_index_finger_vector(hand_landmarks, frame.shape)
                 center_hand = self.get_centroid_hand(hand_landmarks, frame.shape)
                 self.draw_hand_landmarks(frame, hand_landmarks)
 
-        results = yolo_model.predict(source=frame, stream=True, verbose=False)
+        results = yolo_model.predict(source=clean, stream=True, verbose=False)
         predicted_classes = []
 
         for result in results:
             for box in result.boxes:
                 confidence = box.conf[0].item()
-                if confidence >= 0.75:
+                if confidence >= 0.5:
                     x1, y1, x2, y2 = map(int, box.xyxy[0])
                     class_name = yolo_model.names[int(box.cls[0])]
                     confidence = box.conf[0].item()

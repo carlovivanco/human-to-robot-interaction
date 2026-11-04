@@ -1,0 +1,13 @@
+# Simulation renders (sim_ros2/make_dataset.py) + real photos (scripts/fetch_real_tools.py).
+# Class order = SpeechRecognition.tools.
+train:
+  - dataset/images/train
+  - dataset_real/images/train
+val:
+  - dataset/images/val
+  - dataset_real/images/val
+names:
+  0: Hammer
+  1: Screwdriver
+  2: Wrench
+  3: Pliers

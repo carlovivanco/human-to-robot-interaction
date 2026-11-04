@@ -30,16 +30,17 @@ The main interaction flow is broken down into cooperating use cases across the u
 
 1. **Speech recognition** (`vision_sim/cli/combine.py`) listens continuously for the trigger word "panda", transcribes the command with Google Speech Recognition, and uses a zero-shot BART-large-MNLI classifier to extract the requested **tool** and **action** from natural language.
 2. **Vision** (`vision_sim/vision_server/main.py`) runs a YOLO model to detect and localize tools in the camera feed, and MediaPipe to track the user's hand landmarks, gesture (e.g. open palm), and pointing direction. Object orientation is estimated with OpenCV contour analysis + PCA.
-3. **Robot control** (`panda_class.py`) wraps the Franka `cartesian_impedance_example_controller` ROS topics to move the end-effector, open/close the gripper, and convert between camera, world, and robot coordinate frames.
+3. **Robot control** (`panda_class.py`) publishes Cartesian targets on ROS 2 topics to move the end-effector, open/close the gripper, and convert between camera, world, and robot coordinate frames.
 4. **Integration** (`sim.py`) ties the three modules together: once a tool and action are recognized, it looks up the tool's position from the vision module, converts it to world coordinates, and drives the robot through pick-and-place or hand-to-hand transfer.
 
 ## Project structure
 
 ```
 .
-├── panda_class.py                   # Panda robot control class (ROS / franka_ros)
+├── panda_class.py                   # Panda robot control class (rclpy / franka_ros2)
 ├── sim.py                           # Main integration script (speech + vision + robot)
 ├── requirements.txt
+├── sim_ros2/                        # Gazebo launch file, world (with RGB-D camera) and controller config
 └── vision_sim/
     ├── vision_server/
     │   ├── img_sub.py               # ROS <-> OpenCV image/depth bridge
@@ -52,50 +53,80 @@ The main interaction flow is broken down into cooperating use cases across the u
 
 ## Requirements
 
-- Ubuntu 20.04 + Python 3.8
-- ROS Noetic, `franka_ros`, and `libfranka` (see the [Franka Control Interface docs](https://frankaemika.github.io/docs/installation_linux.html))
+- Ubuntu 24.04 + Python 3.12
+- ROS 2 Jazzy (`ros-jazzy-desktop`), Gazebo Harmonic via `ros_gz`, and [`franka_ros2`](https://github.com/frankarobotics/franka_ros2) (`jazzy` branch)
 - A CUDA-capable GPU is recommended for YOLO and the LLM classifier
 
 ## Installation
 
 ```bash
-sudo apt install ros-noetic-libfranka ros-noetic-franka-ros
+sudo apt install ros-jazzy-desktop ros-jazzy-ros-gz ros-jazzy-gz-ros2-control \
+  ros-jazzy-ros2-control ros-jazzy-ros2-controllers portaudio19-dev python3-venv
 
-mkdir -p panda_ws
-cd panda_ws
-git clone https://github.com/carlovivanco/human-to-robot-interaction.git src
+mkdir -p panda_ws && cd panda_ws
+git clone -b jazzy https://github.com/frankarobotics/franka_ros2.git src/franka_ros2
+git clone https://github.com/carlovivanco/human-to-robot-interaction.git src/human-to-robot-interaction
+vcs import src < src/franka_ros2/dependency.repos   # franka_description etc. (needs python3-vcstool)
 
-source /opt/ros/noetic/setup.sh
-catkin_init_workspace src
-cd src
-pip install -r requirements.txt
+source /opt/ros/jazzy/setup.bash
+rosdep install --from-paths src --ignore-src --rosdistro jazzy -y --skip-keys=zed_wrapper
+colcon build --cmake-args -DCMAKE_BUILD_TYPE=Release
+source install/setup.bash
 
-rosdep install --from-paths src --ignore-src --rosdistro noetic -y --skip-keys libfranka
-catkin_make -DCMAKE_BUILD_TYPE=Release -DFranka_DIR:PATH=/path/to/libfranka/build
-source devel/setup.sh
+# system site-packages so the venv sees rclpy / cv_bridge
+python3 -m venv --system-site-packages .venv && source .venv/bin/activate
+pip install -r src/human-to-robot-interaction/requirements.txt
 ```
 
 ## Running the simulation
 
-Launch the Gazebo environment:
+One command starts Gazebo (FR3 arm, table, the four tools, a 3D open hand, RGB-D camera), waits for the
+controllers and runs `sim.py`; the other two modes also record:
 
 ```bash
-cd panda_ws
-source devel/setup.sh
-roslaunch franka_gazebo panda.launch x:=-0.35 \
-  world:=$(rospack find franka_gazebo)/world/stone.sdf \
-  controller:=cartesian_impedance_example_controller \
-  rviz:=false
+scripts/record_demo.sh run       # just run
+scripts/record_demo.sh screen    # + screen capture -> portfolio_export/raw/demo_screen.mkv
 ```
 
-In a second terminal, run the main script:
+It finds the workspace by itself (or set `PANDA_WS`). When the terminal prints "press any key to start", press Enter
+and say **"panda, pass me the hammer"** (or *wrench*, *screwdriver*, *pliers*). The arm picks the tool and holds it
+over the open hand in the scene. Stop with Ctrl+C. For recording, convert the clip with
+`python3 scripts/export_demo.py convert --input portfolio_export/raw/demo_screen.mkv --start <s> --duration 8`.
+
+To start the pieces by hand: `ros2 launch sim_ros2/demo.launch.py` (add `DEMO_HEADLESS=1` for no window), then
+`python3 sim.py` from the repo root.
+
+How the arm is driven: Gazebo's `cartesian_impedance_example_controller` oscillates, so the arm is joint-position
+controlled and `sim_ros2/ik_node.py` turns the Cartesian targets that `panda_class.py` publishes on
+`/cartesian_impedance_example_controller/equilibrium_pose` into joint commands. The Panda ("fer") model is rejected by
+Gazebo (invalid inertia), so the simulation uses the FR3, which has the same reach. The gripper is driven through a
+`JointGroupPositionController` on `fr3_finger_joint1` (simulation only); on a real robot replace `Panda.set_gripper`
+with the `franka_gripper` actions.
+
+The hand is a 3D mesh (`sim_ros2/assets/hand/hand.glb`): the silhouette of a real open-palm photo
+(`sim_ros2/assets/hand.png`, credit in `assets/CREDITS.txt`) inflated into a relief and textured with the photo, so
+MediaPipe reads `Open_Palm`. Hands built from plain shapes were not recognised. Regenerate it with
+`python3 scripts/make_hand_relief.py` (needs `trimesh`, `scipy`, `Pillow`).
+
+## Training the tool detector
+
+The weights are not in the repo. The detector is trained on simulation renders plus real photos (YOLO26, the newest
+Ultralytics generation; `n` is the size that is practical on CPU, use `yolo26s.pt` with a working GPU):
 
 ```bash
-cd panda_ws/src/scripts
-python3 sim.py
+python3 sim_ros2/make_dataset.py --n 400            # with the Gazebo demo running
+python3 scripts/fetch_real_tools.py                 # Open Images photos (Hammer / Screwdriver / Wrench boxes)
+YOLO_AUTOINSTALL=False python3 scripts/autolabel_pliers.py
+YOLO_AUTOINSTALL=False yolo detect train data=vision_sim/data_all.yaml model=yolo26n.pt epochs=100 imgsz=640 device=cpu
+cp runs/detect/train/weights/best.pt vision_sim/models/tools-100-epochs.pt
 ```
 
-Once the camera feed window appears and the terminal prints "press any key to start", say **"panda"** followed by a command, e.g. *"Panda, pass me the hammer"* or *"Panda, hand me the wrench"*.
+`YOLO_AUTOINSTALL=False` stops Ultralytics from pip-installing numpy 2 into the venv, which breaks `cv_bridge`.
+Open Images has few boxed photos of these tools (about 200) and none of pliers: for the real arm, add 50+ photos of
+your own tools taken with the environment camera.
+
+Speech is transcribed locally with Whisper `large-v3-turbo` (`faster-whisper`, GPU if its CUDA libraries load, else
+CPU int8, roughly 3.5 s per command on CPU). The first run downloads about 1.6 GB.
 
 ## Testing
 

@@ -1,3 +1,12 @@
 __pycache__/
 *.pyc
 portfolio_export/
+vision_sim/dataset/
+vision_sim/dataset_real/
+vision_sim/models/yoloe*
+vision_sim/models/mobileclip*
+runs/
+vision_sim/dataset_new/
+vision_sim/models/tools2-backup.pt
+weights/
+yolo26*.pt

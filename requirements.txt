@@ -1,8 +1,10 @@
-numpy
+numpy<2  # ros-jazzy-cv-bridge is built against numpy 1.x
 opencv-python
 mediapipe
 ultralytics
 transformers
 tf-keras
 SpeechRecognition
+faster-whisper
+nvidia-cublas-cu12  # lets Whisper run on the GPU (ctranslate2 needs libcublas.so.12)
 PyAudio

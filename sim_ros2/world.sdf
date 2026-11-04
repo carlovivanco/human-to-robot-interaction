@@ -1,0 +1,116 @@
+<?xml version="1.0"?>
+<!-- Demo world: ground, table, light and the RGB-D camera that sim.py's cam_to_world() assumes.
+     Camera pose = Panda.T / Panda.R in panda_class.py: xyz (0.5, 0, 0.85), rpy (0, 0.7, pi).
+     fx = 554.256 at 640x480 -> hfov 1.0472 rad. The robot base is spawned at x = -0.35 by the launch file.
+     Tools (hammer, screwdriver, wrench, pliers) are simple box models; model names are the lower-case YOLO class names. -->
+<sdf version="1.9">
+  <world name="demo">
+    <plugin filename="gz-sim-physics-system" name="gz::sim::systems::Physics"/>
+    <plugin filename="gz-sim-user-commands-system" name="gz::sim::systems::UserCommands"/>
+    <plugin filename="gz-sim-scene-broadcaster-system" name="gz::sim::systems::SceneBroadcaster"/>
+    <plugin filename="gz-sim-sensors-system" name="gz::sim::systems::Sensors">
+      <render_engine>ogre2</render_engine>
+    </plugin>
+
+    <light type="directional" name="sun">
+      <pose>0 0 5 0 0 0</pose>
+      <cast_shadows>true</cast_shadows>
+      <direction>-0.5 0.1 -0.9</direction>
+    </light>
+
+    <model name="ground">
+      <static>true</static>
+      <link name="link">
+        <collision name="c"><geometry><plane><normal>0 0 1</normal><size>10 10</size></plane></geometry></collision>
+        <visual name="v"><geometry><plane><normal>0 0 1</normal><size>10 10</size></plane></geometry>
+          <material><ambient>0.7 0.7 0.7 1</ambient><diffuse>0.7 0.7 0.7 1</diffuse></material></visual>
+      </link>
+    </model>
+
+
+    <!-- table: top surface at z = 0.2 (tools and the hand sit on it) -->
+    <model name="table">
+      <static>true</static>
+      <pose>0.1 0 0.1 0 0 0</pose>
+      <link name="link">
+        <collision name="c"><geometry><box><size>0.6 0.8 0.2</size></box></geometry></collision>
+        <visual name="v"><geometry><box><size>0.6 0.8 0.2</size></box></geometry>
+          <material><ambient>0.45 0.3 0.2 1</ambient><diffuse>0.45 0.3 0.2 1</diffuse></material></visual>
+      </link>
+    </model>
+
+    <!-- hammer: 3 cm thick at its bbox centre so Panda.grasp(0.03) closes on it. Origin = bottom centre. -->
+    <model name="hammer">
+      <pose>0.0 -0.3 0.2 0 0 0</pose>
+      <link name="link">
+        <inertial><mass>0.1</mass><inertia><ixx>1e-4</ixx><iyy>1e-4</iyy><izz>1e-4</izz></inertia></inertial>
+        <collision name="c0"><pose>0 0 0.015 0 0 0</pose><geometry><box><size>0.2 0.03 0.03</size></box></geometry><surface><friction><ode><mu>1.5</mu><mu2>1.5</mu2></ode></friction></surface></collision>
+        <visual name="v0"><pose>0 0 0.015 0 0 0</pose><geometry><box><size>0.2 0.03 0.03</size></box></geometry><material><ambient>0.55 0.35 0.15 1</ambient><diffuse>0.55 0.35 0.15 1</diffuse></material></visual>
+        <collision name="c1"><pose>0.12 0 0.015 0 0 0</pose><geometry><box><size>0.04 0.1 0.03</size></box></geometry><surface><friction><ode><mu>1.5</mu><mu2>1.5</mu2></ode></friction></surface></collision>
+        <visual name="v1"><pose>0.12 0 0.015 0 0 0</pose><geometry><box><size>0.04 0.1 0.03</size></box></geometry><material><ambient>0.25 0.25 0.25 1</ambient><diffuse>0.25 0.25 0.25 1</diffuse></material></visual>
+      </link>
+    </model>
+
+    <!-- screwdriver: 3 cm thick at its bbox centre so Panda.grasp(0.03) closes on it. Origin = bottom centre. -->
+    <model name="screwdriver">
+      <pose>0.0 -0.1 0.2 0 0 0</pose>
+      <link name="link">
+        <inertial><mass>0.1</mass><inertia><ixx>1e-4</ixx><iyy>1e-4</iyy><izz>1e-4</izz></inertia></inertial>
+        <collision name="c0"><pose>-0.04 0 0.015 0 0 0</pose><geometry><box><size>0.12 0.03 0.03</size></box></geometry><surface><friction><ode><mu>1.5</mu><mu2>1.5</mu2></ode></friction></surface></collision>
+        <visual name="v0"><pose>-0.04 0 0.015 0 0 0</pose><geometry><box><size>0.12 0.03 0.03</size></box></geometry><material><ambient>0.8 0.1 0.1 1</ambient><diffuse>0.8 0.1 0.1 1</diffuse></material></visual>
+        <collision name="c1"><pose>0.07 0 0.015 0 0 0</pose><geometry><box><size>0.1 0.008 0.008</size></box></geometry><surface><friction><ode><mu>1.5</mu><mu2>1.5</mu2></ode></friction></surface></collision>
+        <visual name="v1"><pose>0.07 0 0.015 0 0 0</pose><geometry><box><size>0.1 0.008 0.008</size></box></geometry><material><ambient>0.75 0.75 0.8 1</ambient><diffuse>0.75 0.75 0.8 1</diffuse></material></visual>
+      </link>
+    </model>
+
+    <!-- wrench: 3 cm thick at its bbox centre so Panda.grasp(0.03) closes on it. Origin = bottom centre. -->
+    <model name="wrench">
+      <pose>0.0 0.1 0.2 0 0 0</pose>
+      <link name="link">
+        <inertial><mass>0.1</mass><inertia><ixx>1e-4</ixx><iyy>1e-4</iyy><izz>1e-4</izz></inertia></inertial>
+        <collision name="c0"><pose>0 0 0.0075 0 0 0</pose><geometry><box><size>0.18 0.03 0.015</size></box></geometry><surface><friction><ode><mu>1.5</mu><mu2>1.5</mu2></ode></friction></surface></collision>
+        <visual name="v0"><pose>0 0 0.0075 0 0 0</pose><geometry><box><size>0.18 0.03 0.015</size></box></geometry><material><ambient>0.9 0.75 0.1 1</ambient><diffuse>0.9 0.75 0.1 1</diffuse></material></visual>
+        <collision name="c1"><pose>-0.115 0 0.0075 0 0 0</pose><geometry><box><size>0.05 0.05 0.015</size></box></geometry><surface><friction><ode><mu>1.5</mu><mu2>1.5</mu2></ode></friction></surface></collision>
+        <visual name="v1"><pose>-0.115 0 0.0075 0 0 0</pose><geometry><box><size>0.05 0.05 0.015</size></box></geometry><material><ambient>0.9 0.75 0.1 1</ambient><diffuse>0.9 0.75 0.1 1</diffuse></material></visual>
+        <collision name="c2"><pose>0.115 0 0.0075 0 0 0</pose><geometry><box><size>0.05 0.05 0.015</size></box></geometry><surface><friction><ode><mu>1.5</mu><mu2>1.5</mu2></ode></friction></surface></collision>
+        <visual name="v2"><pose>0.115 0 0.0075 0 0 0</pose><geometry><box><size>0.05 0.05 0.015</size></box></geometry><material><ambient>0.9 0.75 0.1 1</ambient><diffuse>0.9 0.75 0.1 1</diffuse></material></visual>
+      </link>
+    </model>
+
+    <!-- pliers: 3 cm thick at its bbox centre so Panda.grasp(0.03) closes on it. Origin = bottom centre. -->
+    <model name="pliers">
+      <pose>0.0 0.3 0.2 0 0 -1.5708</pose>
+      <link name="link">
+        <inertial><mass>0.1</mass><inertia><ixx>1e-4</ixx><iyy>1e-4</iyy><izz>1e-4</izz></inertia></inertial>
+        <collision name="c0"><pose>0 0 0.01 0 0 0</pose><geometry><box><size>0.1 0.03 0.02</size></box></geometry><surface><friction><ode><mu>1.5</mu><mu2>1.5</mu2></ode></friction></surface></collision>
+        <visual name="v0"><pose>0 0 0.01 0 0 0</pose><geometry><box><size>0.1 0.03 0.02</size></box></geometry><material><ambient>0.1 0.25 0.8 1</ambient><diffuse>0.1 0.25 0.8 1</diffuse></material></visual>
+        <collision name="c1"><pose>0.08 0 0.01 0 0 0</pose><geometry><box><size>0.06 0.02 0.02</size></box></geometry><surface><friction><ode><mu>1.5</mu><mu2>1.5</mu2></ode></friction></surface></collision>
+        <visual name="v1"><pose>0.08 0 0.01 0 0 0</pose><geometry><box><size>0.06 0.02 0.02</size></box></geometry><material><ambient>0.15 0.15 0.15 1</ambient><diffuse>0.15 0.15 0.15 1</diffuse></material></visual>
+      </link>
+    </model>
+
+    <!-- the hand that receives the tool: a 3D open palm, horizontal and facing up (assets/hand/, scripts/make_hand_relief.py) -->
+    <include>
+      <uri>model://hand</uri>
+      <name>hand</name>
+      <pose>0.06 0 0.30 0 -1.2208 0</pose>
+    </include>
+
+    <model name="camera">
+      <static>true</static>
+      <pose>0.5 0 0.85 0 0.7 3.14159265</pose>
+      <link name="link">
+        <sensor name="rgbd" type="rgbd_camera">
+          <topic>camera</topic>
+          <update_rate>30</update_rate>
+          <always_on>true</always_on>
+          <camera>
+            <horizontal_fov>1.0472</horizontal_fov>
+            <image><width>640</width><height>480</height></image>
+            <clip><near>0.1</near><far>10</far></clip>
+          </camera>
+        </sensor>
+      </link>
+    </model>
+  </world>
+</sdf>

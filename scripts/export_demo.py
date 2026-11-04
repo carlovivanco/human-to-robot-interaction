@@ -3,7 +3,7 @@
 
 Subcommands
   convert   Re-encode an existing recording to 1280x720, 30 fps, H.264 yuv420p,
-            +faststart, no audio, < 8 MB, plus a 1280x720 JPG (quality 85).
+            +faststart, audio kept (AAC) if the recording has it, < 8 MB, plus a 1280x720 JPG (quality 85).
   annotate  Run the repo's own vision pipeline (VisionClass.process_frame) offline
             over a recorded camera feed (video file or rosbag), write the annotated
             video, then convert it.
@@ -24,6 +24,7 @@ ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 OUT_DEFAULT = os.path.join(ROOT, "portfolio_export")
 W, H, FPS = 1280, 720, 30
 MAX_BYTES = 8 * 1000 * 1000
+MAX_SEC = 60  # was 10: long enough to show the whole hand-over / take-back sequence
 COLOR_TOPIC = "/camera/color/image_raw"
 DEPTH_TOPIC = "/camera/depth/image_raw"
 
@@ -54,8 +55,10 @@ FIT = (f"scale={W}:{H}:force_original_aspect_ratio=decrease,"
 
 
 def encode(src, dst, start, duration, crf):
+    has_audio = any(s["codec_type"] == "audio" for s in probe(src)["streams"])
+    audio = ["-c:a", "aac", "-b:a", "128k"] if has_audio else ["-an"]
     run(["ffmpeg", "-y", "-v", "error", "-ss", str(start), "-i", src, "-t", str(duration),
-         "-vf", f"{FIT},fps={FPS},format=yuv420p", "-an",
+         "-vf", f"{FIT},fps={FPS},format=yuv420p", *audio,
          "-c:v", "libx264", "-profile:v", "high", "-preset", "slow", "-crf", str(crf),
          "-movflags", "+faststart", dst])
 
@@ -96,14 +99,13 @@ def verify(mp4, jpg):
         "30 fps": abs(fps - FPS) < 0.01,
         "h264": v["codec_name"] == "h264",
         "yuv420p": v["pix_fmt"] == "yuv420p",
-        "no audio": not a,
-        "5-10 s": 5 <= dur <= 10.05,
+        f"5-{MAX_SEC} s": 5 <= dur <= MAX_SEC + 0.05,
         "< 8 MB": size < MAX_BYTES,
         "faststart": faststart,
     }
     from_jpg = probe(jpg)["streams"][0]
     checks["jpg 1280x720"] = (from_jpg["width"], from_jpg["height"]) == (W, H)
-    print(f"{mp4}: {dur:.2f}s, {size / 1e6:.2f} MB")
+    print(f"{mp4}: {dur:.2f}s, {size / 1e6:.2f} MB, audio: {'yes' if a else 'no'}")
     for k, ok in checks.items():
         print(f"  [{'ok' if ok else 'FAIL'}] {k}")
     if not all(checks.values()):
@@ -114,8 +116,8 @@ def cmd_convert(a):
     need("ffmpeg"), need("ffprobe")
     if not os.path.isfile(a.input):
         die(f"input not found: {a.input}")
-    if not 5 <= a.duration <= 10:
-        die("--duration must be between 5 and 10 seconds")
+    if not 5 <= a.duration <= MAX_SEC:
+        die(f"--duration must be between 5 and {MAX_SEC} seconds")
     total = float(probe(a.input)["format"].get("duration") or 0)
     if total and a.start + a.duration > total + 0.05:
         die(f"recording is {total:.1f}s; start+duration ({a.start + a.duration:.1f}s) exceeds it")
@@ -135,7 +137,7 @@ def cmd_convert(a):
 
 def stub_ros():
     """Let vision_sim import without ROS; the ImageSubscriber is never instantiated."""
-    for name in ("rospy", "cv_bridge", "sensor_msgs", "sensor_msgs.msg"):
+    for name in ("rclpy", "cv_bridge", "sensor_msgs", "sensor_msgs.msg"):
         if name not in sys.modules:
             try:
                 __import__(name)
@@ -175,20 +177,27 @@ def frames_from_video(path):
 
 def frames_from_bag(path):
     try:
-        import rosbag
+        import rosbag2_py
         from cv_bridge import CvBridge
+        from rclpy.serialization import deserialize_message
+        from sensor_msgs.msg import Image
     except ImportError:
-        die("--bag needs a ROS environment (source /opt/ros/noetic/setup.bash)")
+        die("--bag needs a ROS environment (source /opt/ros/jazzy/setup.bash)")
     bridge = CvBridge()
     depth = None
     stamps = []
-    with rosbag.Bag(path) as bag:
-        for topic, msg, t in bag.read_messages(topics=[COLOR_TOPIC, DEPTH_TOPIC]):
-            if topic == DEPTH_TOPIC:
-                depth = bridge.imgmsg_to_cv2(msg, desired_encoding="passthrough")
-            elif depth is not None:
-                stamps.append(t.to_sec())
-                yield bridge.imgmsg_to_cv2(msg, desired_encoding="bgr8"), depth, None
+    reader = rosbag2_py.SequentialReader()
+    reader.open(rosbag2_py.StorageOptions(uri=path), rosbag2_py.ConverterOptions("", ""))
+    while reader.has_next():
+        topic, data, t = reader.read_next()
+        if topic not in (COLOR_TOPIC, DEPTH_TOPIC):
+            continue
+        msg = deserialize_message(data, Image)
+        if topic == DEPTH_TOPIC:
+            depth = bridge.imgmsg_to_cv2(msg, desired_encoding="passthrough")
+        elif depth is not None:
+            stamps.append(t / 1e9)
+            yield bridge.imgmsg_to_cv2(msg, desired_encoding="bgr8"), depth, None
     if len(stamps) < 2:
         die(f"no color+depth frames found in {path}")
 
@@ -201,7 +210,7 @@ def cmd_annotate(a):
     if bool(a.input) == bool(a.bag):
         die("give exactly one of --input or --bag")
     src = a.input or a.bag
-    if not os.path.isfile(src):
+    if not os.path.exists(src):  # a rosbag2 is a directory
         die(f"recording not found: {src}")
     import cv2
     stub_ros()
@@ -256,7 +265,7 @@ def main():
     def common(sp):
         sp.add_argument("--out", default=OUT_DEFAULT, help="output dir (default: portfolio_export/)")
         sp.add_argument("--start", type=float, default=0.0, help="start second in the recording")
-        sp.add_argument("--duration", type=float, default=8.0, help="clip length, 5-10 s")
+        sp.add_argument("--duration", type=float, default=8.0, help="clip length in seconds (5-%d)" % MAX_SEC)
         sp.add_argument("--frame-at", type=float, default=None,
                         help="second inside the clip for hri.jpg (default: middle)")
         sp.add_argument("--crf", type=int, default=23, help="starting x264 CRF")
@@ -268,7 +277,7 @@ def main():
 
     an = sub.add_parser("annotate", help="run the repo's vision pipeline on a recorded camera feed")
     an.add_argument("--input", help="recorded camera video")
-    an.add_argument("--bag", help="rosbag with %s and %s" % (COLOR_TOPIC, DEPTH_TOPIC))
+    an.add_argument("--bag", help="rosbag2 directory with %s and %s" % (COLOR_TOPIC, DEPTH_TOPIC))
     an.add_argument("--yolo", default=os.path.join(ROOT, "vision_sim/models/tools-100-epochs.pt"))
     an.add_argument("--gesture", default=os.path.join(ROOT, "vision_sim/models/gesture_recognizer.task"))
     an.add_argument("--fps", type=float, default=FPS, help="fps when the source has none (bag)")
