@@ -108,6 +108,23 @@ The hand is a 3D mesh (`sim_ros2/assets/hand/hand.glb`): the silhouette of a rea
 MediaPipe reads `Open_Palm`. Hands built from plain shapes were not recognised. Regenerate it with
 `python3 scripts/make_hand_relief.py` (needs `trimesh`, `scipy`, `Pillow`).
 
+### Running in Isaac Sim
+
+The same demo runs on Isaac Sim 6 (`~/isaacsim`, or set `ISAAC_SIM`); only the simulator changes, the ROS topics, `sim.py`,
+`panda_class.py` and `sim_ros2/ik_node.py` are the same:
+
+```bash
+SIM=isaac scripts/record_demo.sh run      # or: screen
+```
+
+`sim_isaac/demo.launch.py` writes the FR3 URDF (absolute mesh paths) and starts `robot_state_publisher`, the IK node and
+`sim_isaac/world.py` (Isaac's Python). `world.py` builds the same scene as `sim_ros2/world.sdf`, imports the URDF, listens
+to `/arm_position_controller/commands` and `/gripper_position_controller/commands` (it drives both fingers, Isaac ignores
+the URDF `<mimic>`), and publishes `/joint_states` and the RGB-D camera (`/camera/color/image_raw`,
+`/camera/depth/image_raw`) with the same pose and intrinsics as Gazebo. The first start takes about two minutes (shader
+cache and URDF import). The detector was trained on Gazebo renders: if it misses tools in Isaac, port
+`sim_ros2/make_dataset.py` (not done).
+
 ## Training the tool detector
 
 The weights are not in the repo. The detector is trained on simulation renders plus real photos (YOLO26, the newest

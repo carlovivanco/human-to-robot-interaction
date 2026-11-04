@@ -1,0 +1,9 @@
+# Only Isaac Sim renders (sim_ros2/make_dataset.py --sim isaac). No Gazebo, no real photos.
+# Class order = SpeechRecognition.tools.
+train: dataset_isaac/images/train
+val: dataset_isaac/images/val
+names:
+  0: Hammer
+  1: Screwdriver
+  2: Wrench
+  3: Pliers

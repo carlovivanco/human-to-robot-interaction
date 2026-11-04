@@ -2,6 +2,7 @@ __pycache__/
 *.pyc
 portfolio_export/
 vision_sim/dataset/
+vision_sim/dataset_isaac/
 vision_sim/dataset_real/
 vision_sim/models/yoloe*
 vision_sim/models/mobileclip*

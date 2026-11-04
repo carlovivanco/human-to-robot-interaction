@@ -9,6 +9,7 @@ import numpy as np
 import speech_recognition as sr
 from faster_whisper import WhisperModel
 from transformers import pipeline
+import os
 import threading
 
 # ctranslate2 needs libcublas.so.12; the pip package nvidia-cublas-cu12 ships it outside the loader path
@@ -22,7 +23,8 @@ PROMPT = "Panda, pass me the hammer. Panda, hand me the wrench, the screwdriver 
 
 def load_stt(name):
     """GPU if it really works (ctranslate2 reports a device even when the CUDA libraries are missing), else CPU."""
-    for device, compute in (("cuda", "float16"), ("cpu", "int8")):
+    # WHISPER_DEVICE=cpu: Isaac Sim takes the 6 GB GPU, Whisper then runs out of memory on real audio
+    for device, compute in (("cuda", "float16"), ("cpu", "int8"))[1 if os.environ.get("WHISPER_DEVICE") == "cpu" else 0:]:
         try:
             model = WhisperModel(name, device=device, compute_type=compute)
             list(model.transcribe(np.zeros(16000, np.float32), language="en")[0])  # raises here if CUDA is broken
@@ -33,10 +35,12 @@ def load_stt(name):
 
 
 class SpeechRecognition(threading.Thread):
-    def __init__(self, stt_model="large-v3-turbo", language="en"):
+    def __init__(self, stt_model=None, language="en"):
         super().__init__()
         self.language = language
-        self.stt = load_stt(stt_model)
+        # on CPU (WHISPER_DEVICE=cpu, i.e. next to Isaac Sim) large-v3-turbo needs ~30 s per command; small.en is ~14x realtime
+        cpu = os.environ.get("WHISPER_DEVICE") == "cpu"
+        self.stt = load_stt(stt_model or os.environ.get("WHISPER_MODEL") or ("small.en" if cpu else "large-v3-turbo"))
         self._stop_event = threading.Event()
         self.tools = ["Hammer", "Screwdriver", "Wrench", "Pliers"]
         self.actions = ["pass", "take"]  # , "use", "drop"]

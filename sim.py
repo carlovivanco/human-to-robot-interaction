@@ -1,3 +1,4 @@
+import os
 import time
 
 import numpy as np
@@ -12,7 +13,7 @@ print('panda')
 command = SpeechRecognition()
 print("commands")
 detector = VisionClass(
-    yolo_model_path='vision_sim/models/tools-100-epochs.pt',
+    yolo_model_path=os.environ.get('YOLO_WEIGHTS', 'vision_sim/models/tools-100-epochs.pt'),
     gesture_model_path='vision_sim/models/gesture_recognizer.task',
     show_camera=True
 )

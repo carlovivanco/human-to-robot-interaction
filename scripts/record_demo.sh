@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# One command to run (and optionally record) the demo: Gazebo + sim.py.
+# One command to run (and optionally record) the demo: Gazebo + sim.py (SIM=isaac for Isaac Sim).
 #
 #   scripts/record_demo.sh run      # run only
 #   scripts/record_demo.sh screen   # + screen capture -> portfolio_export/raw/demo_screen.mkv
@@ -46,15 +46,21 @@ cleanup() {
 }
 trap cleanup INT TERM EXIT
 
-ros2 launch "$ROOT/sim_ros2/demo.launch.py" &
+# SIM=isaac runs the same demo on Isaac Sim (sim_isaac/); default is Gazebo
+if [[ "${SIM:-gazebo}" == "isaac" ]]; then
+  export WHISPER_DEVICE=cpu  # Isaac needs the GPU memory
+  ros2 launch "$ROOT/sim_isaac/demo.launch.py" &
+  READY() { timeout 5 ros2 topic echo --once /joint_states >/dev/null 2>&1; }  # Isaac takes about a minute to start
+  TRIES=120
+else
+  ros2 launch "$ROOT/sim_ros2/demo.launch.py" &
+  READY() { ros2 control list_controllers 2>/dev/null | grep -q "arm_position_controller.*active"; }
+  TRIES=60
+fi
 PIDS+=($!)
-echo "Waiting for Gazebo and the controllers..."
-for _ in $(seq 60); do
-  ros2 control list_controllers 2>/dev/null | grep -q "arm_position_controller.*active" && break
-  sleep 2
-done
-ros2 control list_controllers 2>/dev/null | grep -q "arm_position_controller.*active" \
-  || { echo "controllers did not start, see the Gazebo output above"; exit 1; }
+echo "Waiting for the simulator..."
+for _ in $(seq $TRIES); do READY && break; sleep 2; done
+READY || { echo "simulator did not start, see the output above"; exit 1; }
 sleep 5  # the arm goes to its ready pose
 
 if [[ "$MODE" == "screen" ]]; then

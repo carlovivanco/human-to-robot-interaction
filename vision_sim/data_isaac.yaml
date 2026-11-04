@@ -1,0 +1,14 @@
+# Isaac Sim renders (sim_ros2/make_dataset.py --sim isaac) + the Gazebo renders + real photos (scripts/fetch_real_tools.py).
+# Drop the dataset/ lines to train on Isaac + real only. Class order = SpeechRecognition.tools.
+train:
+  - dataset_isaac/images/train
+  - dataset/images/train
+  - dataset_real/images/train
+val:
+  - dataset_isaac/images/val
+  - dataset_real/images/val
+names:
+  0: Hammer
+  1: Screwdriver
+  2: Wrench
+  3: Pliers

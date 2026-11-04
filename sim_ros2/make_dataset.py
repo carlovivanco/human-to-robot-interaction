@@ -11,6 +11,12 @@ back from Gazebo after it settles, since the palm is tilted. Nothing is placed u
 
 The isolated partition is mandatory: `set_pose` reaches every Gazebo with a world called "demo" on the machine, so
 without it the script scrambles the tools of any demo you are running at the same time.
+
+Isaac Sim instead (same geometry, camera and labels; world.py moves the tools on /dataset/set_poses and reports them on
+/dataset/tool_poses, so no partition is needed):
+
+    DEMO_HEADLESS=1 ros2 launch sim_isaac/demo.launch.py
+    python3 sim_ros2/make_dataset.py --sim isaac --n 600 --out vision_sim/dataset_isaac
 """
 import argparse
 import os
@@ -27,6 +33,7 @@ import numpy as np
 import rclpy
 from cv_bridge import CvBridge
 from sensor_msgs.msg import Image
+from std_msgs.msg import Float64MultiArray
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 CLASSES = ["Hammer", "Screwdriver", "Wrench", "Pliers"]  # = SpeechRecognition.tools; sdf model names are lower case
@@ -116,14 +123,32 @@ def set_pose(name, x, y, z, yaw):
                    check=True, capture_output=True)
 
 
+class IsaacLink:
+    """the two topics of sim_isaac/world.py: teleport the tools, read their poses back"""
+
+    def __init__(self, node):
+        self.pub = node.create_publisher(Float64MultiArray, "/dataset/set_poses", 1)
+        self.last = None
+        node.create_subscription(Float64MultiArray, "/dataset/tool_poses", lambda m: setattr(self, "last", m.data), 1)
+
+    def set_poses(self, moves):
+        by = {m[0]: m[1:] for m in moves}  # one entry per tool; world.py expects them in CLASSES order
+        self.pub.publish(Float64MultiArray(data=[v for c in CLASSES for v in by[c.lower()]]))
+
+    def read_poses(self):
+        d = np.reshape(self.last, (-1, 7))  # x y z qw qx qy qz
+        return {c.lower(): (r[:3], quat_to_R(r[4], r[5], r[6], r[3])) for c, r in zip(CLASSES, d)}
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--n", type=int, default=400)
     ap.add_argument("--out", default="vision_sim/dataset")
     ap.add_argument("--hand-share", type=float, default=0.4, help="share of the images with one tool resting on the hand")
     ap.add_argument("--settle", type=float, default=0.8, help="seconds for the tools to settle after set_pose")
+    ap.add_argument("--sim", choices=["gazebo", "isaac"], default="gazebo")
     a = ap.parse_args()
-    if not os.environ.get("GZ_PARTITION") or not os.environ.get("ROS_DOMAIN_ID"):
+    if a.sim == "gazebo" and not (os.environ.get("GZ_PARTITION") and os.environ.get("ROS_DOMAIN_ID")):
         raise SystemExit("set GZ_PARTITION and ROS_DOMAIN_ID (same values as the launch terminal), see the file header")
 
     # the optical axis must hit the image centre
@@ -137,6 +162,7 @@ def main():
         frame[0] = bridge.imgmsg_to_cv2(msg, desired_encoding="bgr8")
         fresh.set()
     node.create_subscription(Image, "/camera/color/image_raw", on_image, 1)
+    isaac = IsaacLink(node) if a.sim == "isaac" else None
     threading.Thread(target=rclpy.spin, args=(node,), daemon=True).start()
 
     corners = tool_corners()
@@ -168,8 +194,11 @@ def main():
             moves.append((hand_cls.lower(), hx, hy, ON_HAND_Z, random.uniform(-0.4, 0.4) + random.choice([0, np.pi])))
         used = {t[0] for t in table} | ({hand_cls} if hand_cls else set())
         moves += [(cls.lower(), 1.5, 0.0, 0.5, 0.0) for cls in set(CLASSES) - used]  # out of view
-        with ThreadPoolExecutor(4) as ex:  # each `gz service` call costs about a second
-            list(ex.map(lambda m: set_pose(*m), moves))
+        if isaac:
+            isaac.set_poses(moves)
+        else:
+            with ThreadPoolExecutor(4) as ex:  # each `gz service` call costs about a second
+                list(ex.map(lambda m: set_pose(*m), moves))
         time.sleep(a.settle + (1.0 if hand_cls else 0.0))
         fresh.clear()
         if not fresh.wait(5):
@@ -183,7 +212,7 @@ def main():
             else:
                 lines.append(f"{CLASSES.index(cls)} " + " ".join(f"{v:.6f}" for v in box))
         if hand_cls:
-            pos, Rm = read_poses().get(hand_cls.lower(), (None, None))
+            pos, Rm = (isaac.read_poses() if isaac else read_poses()).get(hand_cls.lower(), (None, None))
             if pos is None or pos[2] < 0.3 or np.linalg.norm(pos[:2] - HAND_XY) > 0.12:
                 continue  # it slid off the palm
             box = label(corners[hand_cls], pos, Rm)
